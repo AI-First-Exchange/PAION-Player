@@ -1,4 +1,4 @@
-name: Build Windows PAION Player
+name: Build Windows AIFX Player
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          pyinstaller --clean --noconfirm PAION-Player.spec
+          pyinstaller --clean --noconfirm paion-player.spec
 
       - name: Inspect dist output
         shell: pwsh
@@ -47,20 +47,20 @@ jobs:
       - name: Zip Windows build
         shell: pwsh
         run: |
-          if (Test-Path "dist\\PAION") {
+          if (Test-Path "dist\\AIFX-Player") {
             Compress-Archive `
-              -Path "dist\\PAION\\*" `
-              -DestinationPath "PAION-Player-Windows.zip" `
+              -Path "dist\\AIFX-Player\\*" `
+              -DestinationPath "AIFX-Player-Windows.zip" `
               -Force
           }
-          elseif (Test-Path "dist\\PAION.exe") {
+          elseif (Test-Path "dist\\AIFX-Player.exe") {
             Compress-Archive `
-              -Path "dist\\PAION.exe" `
-              -DestinationPath "PAION-Player-Windows.zip" `
+              -Path "dist\\AIFX-Player.exe" `
+              -DestinationPath "AIFX-Player-Windows.zip" `
               -Force
           }
           else {
-            Write-Host "ERROR: Expected PAION output not found"
+            Write-Host "ERROR: Expected AIFX-Player output not found"
             Get-ChildItem -Recurse "dist" | Select-Object FullName
             exit 1
           }
@@ -68,5 +68,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PAION-Player-Windows
-          path: PAION-Player-Windows.zip
+          name: AIFX-Player-Windows
+          path: AIFX-Player-Windows.zip

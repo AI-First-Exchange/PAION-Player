@@ -1,36 +1,59 @@
-PAION SOURCE LICENSE – Paid Distribution Model
+PAION PLAYER SOURCE-AVAILABLE LICENSE
+Version 1.0
 
-Copyright (c) 2026 Joseph Simon
+Copyright (c) 2026 Joseph Simon Simbulan
 
-This software is provided under a source-available license.
+This license applies to the PAION Player reference implementation.
+It does not restrict independent implementations of the AI First Exchange (AIFX) specifications.
+
+---
+
+PERMITTED USES
 
 You are permitted to:
+
 - View and study the source code
-- Build the software locally for development or evaluation
-- Modify the source code for personal experimentation
+- Build the software locally for development, testing, and evaluation
+- Modify the source code for personal or internal experimentation
 - Contribute improvements via pull requests (subject to acceptance)
+- Use the software for non-commercial research and evaluation
 
-You are NOT permitted to:
-- Redistribute compiled binaries or packaged applications
-- Offer the software for download outside official PAION channels
-- Sell, sublicense, or monetize the software or derivative works
-- Offer the software as part of a paid service or platform
-- Publish mobile or desktop apps derived from this software
-- Circumvent payment, licensing, or distribution controls
+---
 
-Official Distribution:
-Precompiled binaries, packaged desktop applications, mobile apps,
-and official installers are distributed exclusively through PAION-
-authorized channels and may require payment.
+RESTRICTIONS
 
-Commercial & Enterprise Use:
-Any commercial use, redistribution, white-labeling, SaaS deployment,
+You may NOT, without explicit permission:
+
+- Redistribute compiled binaries or packaged applications under the PAION or AIFX names
+- Offer the software for download as a public product or service
+- Sell, sublicense, or monetize the PAION Player itself
+- Publish mobile or desktop applications derived from this code under the PAION or AIFX branding
+- Use the software as part of a paid SaaS or commercial platform
+
+---
+
+COMMERCIAL USE
+
+Commercial use, redistribution, white-labeling, SaaS deployment,
 or integration into paid products requires a separate commercial license.
 
-Trademarks:
-PAION™, AIFM™, AIFI™, AIFV™, AIFP™, and AI-First Exchange™ are trademarks
-of Joseph Simon. Use of these names does not imply endorsement unless
-explicitly authorized.
+Please contact:
+licensing@paion.io
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND.
+---
 
+TRADEMARKS
+
+AI First Exchange™ (AIFX™), PAION™, AIFM™, AIFI™, AIFV™, and AIFP™
+are trademarks of Joseph Simon Simbulan.
+
+This license does not grant rights to use these names or associated branding
+in a manner that implies endorsement or official status.
+
+---
+
+DISCLAIMER
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.

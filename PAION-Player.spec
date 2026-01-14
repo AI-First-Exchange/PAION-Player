@@ -38,7 +38,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="PAION",
+    name="AIFX-Player",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -49,7 +49,7 @@ exe = EXE(
 
 app = BUNDLE(
     exe,
-    name="PAION.app",
+    name="AIFX Player.app",
     icon=None,
     bundle_identifier=None,
 )

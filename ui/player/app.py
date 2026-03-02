@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QUrl
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimediaWidgets import QVideoWidget
 
 try:
     from ...core import SafeOpenError, safe_open_package
@@ -43,6 +44,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.player = QMediaPlayer(self)
         self.player.setAudioOutput(self.audio_output)
         self.player.errorOccurred.connect(self._on_playback_error)
+        self.video_widget = QVideoWidget(self)
+        self.player.setVideoOutput(self.video_widget)
+        self.video_widget.hide()
 
         self.summary_view = QtWidgets.QPlainTextEdit()
         self.summary_view.setReadOnly(True)
@@ -65,6 +69,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
+        layout.addWidget(self.video_widget, stretch=2)
         layout.addWidget(self.summary_view)
         layout.addLayout(controls_layout)
         self.setCentralWidget(container)
@@ -95,7 +100,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._media_buffer = QBuffer(self)
         self._media_buffer.setData(self._media_bytes_qba)
         if not self._media_buffer.open(QIODevice.ReadOnly):
-            raise RuntimeError("Failed to open in-memory audio buffer")
+            raise RuntimeError("Failed to open in-memory media buffer")
 
         # Give Qt a suffix hint for codec inference (no disk IO happens).
         hint_name = media_path or "audio.wav"
@@ -131,13 +136,17 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         self.summary_view.setPlainText(_format_summary(result))
+        is_playable_media = result.package_type in ("aifm", "aifv") and result.primary_media_bytes is not None
+        is_video = result.package_type == "aifv"
 
-        if result.package_type == "aifm" and result.primary_media_bytes is not None:
+        if is_playable_media:
             self._load_media_from_bytes(result.primary_media_bytes, result.primary_media_path)
             self._set_controls_enabled(True)
         else:
             self._clear_media_source()
             self._set_controls_enabled(False)
+
+        self.video_widget.setVisible(is_video)
 
 
 def main() -> None:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import importlib
 import json
 import sys
 from functools import partial
@@ -11,17 +10,7 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QUrl
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
-try:
-    from ...core import SafeOpenError, safe_open_package
-except ImportError:
-    # Fallback for repository layout where core is a top-level sibling package.
-    repo_root = Path(__file__).resolve().parents[2]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-    core_module = importlib.import_module("core")
-    SafeOpenError = core_module.SafeOpenError
-    safe_open_package = core_module.safe_open_package
-
+from core import SafeOpenError, safe_open_package
 
 def _normalize_member_path(raw_name: str) -> str:
     normalized = raw_name.replace("\\", "/")

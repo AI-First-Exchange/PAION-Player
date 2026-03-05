@@ -77,17 +77,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self._media_seekable = False
         self._current_package_path: Path | None = None
         self._current_file_paths: tuple[str, ...] = ()
-        self._recent_paths: list[str] = []
+        self._is_fullscreen = False
+        self._restore_state: dict[str, object] = {}
+        self._restore_dock_titlebars: dict[str, QtWidgets.QWidget | None] = {}
+        self._restore_window_flags: QtCore.Qt.WindowFlags | None = None
+        self.settings = QtCore.QSettings("AI-First-Exchange", "AIFX Player")
+        self._recent_paths: list[str] = self._load_recent_paths()
 
         self.audio_output = QAudioOutput(self)
+        self.audio_output.setVolume(0.8)
         self.player = QMediaPlayer(self)
         self.player.setAudioOutput(self.audio_output)
+        if hasattr(self.audio_output, "mutedChanged"):
+            self.audio_output.mutedChanged.connect(self._on_audio_muted_changed)
         self.player.errorOccurred.connect(self._on_playback_error)
         self.player.positionChanged.connect(self._on_position_changed)
         self.player.durationChanged.connect(self._on_duration_changed)
+        if hasattr(self.player, "playbackStateChanged"):
+            self.player.playbackStateChanged.connect(self._on_playback_state_changed)
+        if hasattr(self.player, "stateChanged"):
+            self.player.stateChanged.connect(self._on_playback_state_changed)
+        if hasattr(self.player, "mediaStatusChanged"):
+            self.player.mediaStatusChanged.connect(self._on_media_status_changed)
         if hasattr(self.player, "seekableChanged"):
             self.player.seekableChanged.connect(self._on_seekable_changed)
+        self._has_loaded_media = False
         self.video_widget = QVideoWidget(self)
+        self.video_widget.setStyleSheet("background: black; border: none; padding: 0px; margin: 0px;")
         self.player.setVideoOutput(self.video_widget)
         self.video_widget.hide()
         self.image_label = QtWidgets.QLabel(self)
@@ -98,8 +114,44 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Ignored,
         )
         self.image_label.setMinimumSize(0, 0)
-        self.image_label.setStyleSheet("background: black;")
+        self.image_label.setStyleSheet("background: black; border: none; padding: 0px; margin: 0px;")
         self.image_label.hide()
+        self.media_preview_widget = QtWidgets.QWidget(self)
+        self.media_preview_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding,
+        )
+        self.media_preview_widget.setContentsMargins(0, 0, 0, 0)
+        self.media_preview_layout = QtWidgets.QGridLayout(self.media_preview_widget)
+        self.media_preview_layout.setContentsMargins(0, 0, 0, 0)
+        self.media_preview_layout.setSpacing(0)
+        self.media_preview_layout.addWidget(self.video_widget, 0, 0)
+        self.media_preview_layout.addWidget(self.image_label, 0, 0)
+        self.overlay_play_button = QtWidgets.QPushButton("▶", self.media_preview_widget)
+        self.overlay_play_button.setToolTip("Play")
+        self.overlay_play_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.overlay_play_button.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.overlay_play_button.setFixedSize(80, 80)
+        self.overlay_play_button.setStyleSheet(
+            "QPushButton {"
+            "font-size: 36px;"
+            "font-weight: 700;"
+            "padding: 0px;"
+            "border-radius: 40px;"
+            "border: none;"
+            "background: rgba(0,0,0,0.35);"
+            "color: white;"
+            "}"
+            "QPushButton:hover {"
+            "background: rgba(0,0,0,0.5);"
+            "}"
+            "QPushButton:focus {"
+            "outline: none;"
+            "}"
+        )
+        self.overlay_play_button.clicked.connect(self._on_play_clicked)
+        self.overlay_play_button.hide()
+        self.media_preview_layout.addWidget(self.overlay_play_button, 0, 0, QtCore.Qt.AlignCenter)
         self.empty_label = QtWidgets.QLabel(
             "Use File \u2192 Open... to inspect an AIFX package.",
             self,
@@ -118,7 +170,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pause_button = QtWidgets.QPushButton("Pause")
         self.stop_button = QtWidgets.QPushButton("Stop")
 
-        self.play_button.clicked.connect(self.player.play)
+        self.play_button.clicked.connect(self._on_play_clicked)
         self.pause_button.clicked.connect(self.player.pause)
         self.stop_button.clicked.connect(self.player.stop)
         self._set_controls_enabled(False)
@@ -152,33 +204,61 @@ class MainWindow(QtWidgets.QMainWindow):
         self.position_slider.sliderReleased.connect(self._on_slider_released)
         self.position_slider.sliderMoved.connect(self._on_slider_moved)
 
-        self.timeline_row = QtWidgets.QWidget(self)
-        self.timeline_row.setSizePolicy(
+        self.timeline_widget = QtWidgets.QWidget(self)
+        self.timeline_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed,
         )
-        self.timeline_row.setMinimumWidth(0)
-        timeline_layout = QtWidgets.QHBoxLayout(self.timeline_row)
+        self.timeline_widget.setMinimumWidth(0)
+        timeline_layout = QtWidgets.QHBoxLayout(self.timeline_widget)
         timeline_layout.setContentsMargins(0, 0, 0, 0)
         timeline_layout.setSpacing(8)
         timeline_layout.addWidget(self.time_current_label)
         timeline_layout.addWidget(self.position_slider, 1)
         timeline_layout.addWidget(self.time_total_label)
 
-        controls_layout = QtWidgets.QHBoxLayout()
+        self.controls_widget = QtWidgets.QWidget(self)
+        controls_layout = QtWidgets.QHBoxLayout(self.controls_widget)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(6)
         controls_layout.addWidget(self.play_button)
         controls_layout.addWidget(self.pause_button)
         controls_layout.addWidget(self.stop_button)
         controls_layout.addStretch(1)
 
-        container = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(container)
-        layout.addWidget(self.empty_label, stretch=1)
-        layout.addWidget(self.video_widget, stretch=2)
-        layout.addWidget(self.image_label, stretch=2)
-        layout.addWidget(self.timeline_row)
-        layout.addLayout(controls_layout)
-        self.setCentralWidget(container)
+        self.volume_controls_widget = QtWidgets.QWidget(self)
+        volume_controls_layout = QtWidgets.QHBoxLayout(self.volume_controls_widget)
+        volume_controls_layout.setContentsMargins(0, 0, 0, 0)
+        volume_controls_layout.setSpacing(6)
+        self.mute_button = QtWidgets.QPushButton("🔊")
+        self.mute_button.setCheckable(True)
+        self.mute_button.toggled.connect(self._on_mute_toggled)
+        self.volume_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(80)
+        self.volume_slider.setFixedWidth(120)
+        self.volume_slider.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Fixed,
+        )
+        self.volume_value_label = QtWidgets.QLabel("80%")
+        self.volume_value_label.setMinimumWidth(44)
+        self.volume_value_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.volume_slider.valueChanged.connect(self._on_volume_changed)
+        volume_controls_layout.addWidget(self.mute_button)
+        volume_controls_layout.addWidget(self.volume_slider)
+        volume_controls_layout.addWidget(self.volume_value_label)
+        controls_layout.addWidget(self.volume_controls_widget)
+        self._set_volume_controls_visibility(None)
+        self._sync_mute_ui()
+
+        self.container = QtWidgets.QWidget()
+        self.main_layout = QtWidgets.QVBoxLayout(self.container)
+        self.main_layout.addWidget(self.empty_label, stretch=1)
+        self.main_layout.addWidget(self.media_preview_widget, stretch=2)
+        self.main_layout.addWidget(self.timeline_widget)
+        self.main_layout.addWidget(self.controls_widget)
+        self.setCentralWidget(self.container)
 
         self.file_menu = self.menuBar().addMenu("&File")
         self.open_action = self.file_menu.addAction("Open...")
@@ -244,6 +324,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.files_action.setChecked(False)
         self.files_action.toggled.connect(self.files_dock.setVisible)
         self.files_dock.visibilityChanged.connect(self.files_action.setChecked)
+        self.fullscreen_action = view_menu.addAction("Full Screen")
+        self.fullscreen_action.setCheckable(True)
+        self.fullscreen_action.setShortcuts(
+            [
+                QtGui.QKeySequence("F11"),
+                QtGui.QKeySequence("Ctrl+Meta+F"),
+            ]
+        )
+        self.fullscreen_action.triggered.connect(self._toggle_fullscreen)
 
         self.view_toolbar = self.addToolBar("View")
         self.view_toolbar.setMovable(False)
@@ -252,6 +341,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.metadata_toolbar_action.setChecked(False)
         self.metadata_toolbar_action.toggled.connect(self.metadata_dock.setVisible)
         self.metadata_dock.visibilityChanged.connect(self.metadata_toolbar_action.setChecked)
+
+        self.exit_fullscreen_shortcut = QtGui.QShortcut(QtGui.QKeySequence("Escape"), self)
+        self.exit_fullscreen_shortcut.setContext(QtCore.Qt.ApplicationShortcut)
+        self.exit_fullscreen_shortcut.activated.connect(self._exit_fullscreen)
 
     def _refresh_recent_menu(self) -> None:
         self.recent_menu.clear()
@@ -269,19 +362,63 @@ class MainWindow(QtWidgets.QMainWindow):
         clear_action.setEnabled(has_recent)
         clear_action.triggered.connect(self._clear_recent_paths)
 
+    def _save_recent_paths(self) -> None:
+        self.settings.setValue("recent_paths", self._recent_paths)
+        self.settings.sync()
+
+    def _load_recent_paths(self) -> list[str]:
+        stored = self.settings.value("recent_paths")
+
+        if stored is None:
+            raw_paths: list[object] = []
+        elif isinstance(stored, str):
+            raw_paths = [stored]
+        elif isinstance(stored, (list, tuple)):
+            raw_paths = list(stored)
+        else:
+            raw_paths = []
+
+        normalized_original: list[str] = []
+        for entry in raw_paths:
+            if not isinstance(entry, str):
+                continue
+            cleaned_entry = entry.strip()
+            if cleaned_entry:
+                normalized_original.append(cleaned_entry)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for path_str in normalized_original:
+            if path_str in seen:
+                continue
+            seen.add(path_str)
+            if not Path(path_str).exists():
+                continue
+            deduped.append(path_str)
+
+        cleaned_paths = deduped[:10]
+        if cleaned_paths != normalized_original:
+            self._recent_paths = cleaned_paths
+            self._save_recent_paths()
+
+        return cleaned_paths
+
     def _add_recent_path(self, file_path: str) -> None:
         self._recent_paths = [p for p in self._recent_paths if p != file_path]
         self._recent_paths.insert(0, file_path)
         if len(self._recent_paths) > 10:
             self._recent_paths = self._recent_paths[:10]
+        self._save_recent_paths()
         self._refresh_recent_menu()
 
     def _remove_recent_path(self, file_path: str) -> None:
         self._recent_paths = [p for p in self._recent_paths if p != file_path]
+        self._save_recent_paths()
         self._refresh_recent_menu()
 
     def _clear_recent_paths(self) -> None:
         self._recent_paths = []
+        self._save_recent_paths()
         self._refresh_recent_menu()
 
     def _open_recent_path(self, file_path: str) -> None:
@@ -414,6 +551,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_media_from_bytes(file_bytes, selected_path)
             self._set_controls_enabled(True)
             self.video_widget.hide()
+            self._update_overlay_play_visibility()
             return
 
         if suffix in _VIDEO_EXTS:
@@ -421,6 +559,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_media_from_bytes(file_bytes, selected_path)
             self._set_controls_enabled(True)
             self.video_widget.show()
+            self._update_overlay_play_visibility()
             return
 
         if suffix in _TEXT_EXTS:
@@ -441,6 +580,90 @@ class MainWindow(QtWidgets.QMainWindow):
         if hours > 0:
             return f"{hours}:{minutes:02d}:{seconds:02d}"
         return f"{minutes}:{seconds:02d}"
+
+    def _on_volume_changed(self, value: int) -> None:
+        self.audio_output.setVolume(max(0, min(100, value)) / 100.0)
+        if value == 0 and hasattr(self.audio_output, "setMuted"):
+            self.audio_output.setMuted(True)
+        self.volume_value_label.setText(f"{value}%")
+        self._sync_mute_ui()
+
+    def _on_mute_toggled(self, checked: bool) -> None:
+        self.audio_output.setMuted(bool(checked))
+        self._sync_mute_ui()
+
+    def _on_audio_muted_changed(self, _muted: bool) -> None:
+        self._sync_mute_ui()
+
+    def _sync_mute_ui(self) -> None:
+        is_muted = bool(self.audio_output.isMuted()) if hasattr(self.audio_output, "isMuted") else False
+        blocker = QtCore.QSignalBlocker(self.mute_button)
+        self.mute_button.setChecked(is_muted)
+        self.mute_button.setText("🔇" if is_muted else "🔊")
+        self.mute_button.setToolTip("Unmute" if is_muted else "Mute")
+
+    def _is_playing(self) -> bool:
+        # Qt6: prefer playbackState(); fallback to state()
+        if hasattr(self.player, "playbackState"):
+            try:
+                return self.player.playbackState() == QMediaPlayer.PlayingState
+            except Exception:
+                pass
+        if hasattr(self.player, "state"):
+            try:
+                return self.player.state() == QMediaPlayer.PlayingState
+            except Exception:
+                pass
+        return False
+
+    def _on_play_clicked(self) -> None:
+        self.player.play()
+        self._update_overlay_play_visibility()
+
+    def _set_volume_controls_visibility(self, package_type: str | None) -> None:
+        if self._is_fullscreen:
+            self.volume_controls_widget.setVisible(False)
+            self.volume_controls_widget.setEnabled(False)
+            return
+        visible = package_type in ("aifm", "aifv")
+        self.volume_controls_widget.setVisible(visible)
+        self.volume_controls_widget.setEnabled(visible)
+
+    def _on_playback_state_changed(self, _state) -> None:
+        self._update_overlay_play_visibility()
+
+    def _on_media_status_changed(self, _status) -> None:
+        self._update_overlay_play_visibility()
+
+    def _update_overlay_play_visibility(self) -> None:
+        if not hasattr(self, "overlay_play_button"):
+            return
+        has_visual_preview = self.video_widget.isVisible() or self.image_label.isVisible()
+        is_playing = self._is_playing()
+        show_overlay = self._has_loaded_media and has_visual_preview and not is_playing
+        self.overlay_play_button.setVisible(show_overlay)
+        if show_overlay:
+            self.overlay_play_button.raise_()
+
+    def _format_tool_entry(self, value: object) -> str:
+        if isinstance(value, dict):
+            name_value = value.get("name")
+            version_value = value.get("version")
+            if name_value is not None:
+                name_text = str(name_value).strip()
+                if version_value is not None and str(version_value).strip():
+                    return f"{name_text} ({str(version_value).strip()})"
+                if name_text:
+                    return name_text
+            return ", ".join(f"{k}: {v}" for k, v in value.items())
+        if isinstance(value, (list, tuple)):
+            return ", ".join(self._format_tool_entry(item) for item in value)
+        return str(value)
+
+    def _format_supporting_tools(self, value: object) -> str:
+        if isinstance(value, list):
+            return ", ".join(self._format_tool_entry(item) for item in value)
+        return self._format_tool_entry(value)
 
     def _set_timeline_enabled(self, enabled: bool) -> None:
         self.position_slider.setEnabled(enabled)
@@ -590,13 +813,10 @@ class MainWindow(QtWidgets.QMainWindow):
             provenance = manifest_json.get("provenance")
             if isinstance(provenance, dict):
                 if provenance.get("primary_tool") is not None:
-                    provenance_rows.append(("Primary Tool", str(provenance.get("primary_tool"))))
+                    provenance_rows.append(("Primary Tool", self._format_tool_entry(provenance.get("primary_tool"))))
                 if provenance.get("supporting_tools") is not None:
                     support = provenance.get("supporting_tools")
-                    if isinstance(support, list):
-                        support_text = ", ".join(str(item) for item in support)
-                    else:
-                        support_text = str(support)
+                    support_text = self._format_supporting_tools(support)
                     provenance_rows.append(("Supporting Tools", support_text))
             if provenance_rows:
                 self._add_metadata_section("Provenance", provenance_rows)
@@ -639,13 +859,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 provenance_rows: list[tuple[str, str]] = []
                 primary_tool = provenance.get("primary_tool")
                 if primary_tool is not None:
-                    provenance_rows.append(("Primary Tool", str(primary_tool)))
+                    provenance_rows.append(("Primary Tool", self._format_tool_entry(primary_tool)))
                 supporting_tools = provenance.get("supporting_tools")
                 if supporting_tools is not None:
-                    if isinstance(supporting_tools, list):
-                        supporting_value = ", ".join(str(item) for item in supporting_tools)
-                    else:
-                        supporting_value = str(supporting_tools)
+                    supporting_value = self._format_supporting_tools(supporting_tools)
                     provenance_rows.append(("Supporting Tools", supporting_value))
                 if provenance_rows:
                     self._add_metadata_section("Provenance", provenance_rows)
@@ -661,6 +878,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.metadata_layout.addStretch(1)
 
     def _clear_media_source(self) -> None:
+        self._has_loaded_media = False
         self.player.stop()
         self.player.setSource(QUrl())
 
@@ -670,11 +888,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._media_buffer = None
         self._media_bytes_qba = None
         self._reset_timeline()
+        self._update_overlay_play_visibility()
 
     def _clear_image(self) -> None:
         self._loaded_pixmap = None
         self.image_label.clear()
         self.image_label.hide()
+        self._update_overlay_play_visibility()
 
     def _update_scaled_image(self) -> None:
         if self._loaded_pixmap is None:
@@ -699,6 +919,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_widget.hide()
         self.image_label.show()
         self._update_scaled_image()
+        self._update_overlay_play_visibility()
         return True
 
     def _show_pixmap(self, pixmap: QtGui.QPixmap) -> None:
@@ -706,6 +927,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_widget.hide()
         self.image_label.show()
         self._update_scaled_image()
+        self._update_overlay_play_visibility()
 
     def _make_aifm_placeholder_pixmap(self, title: str) -> QtGui.QPixmap:
         size = self.image_label.size()
@@ -769,15 +991,103 @@ class MainWindow(QtWidgets.QMainWindow):
         source_url = QUrl.fromLocalFile(hint_name)
 
         self.player.setSourceDevice(self._media_buffer, source_url)
+        self._has_loaded_media = True
         self._on_seekable_changed(self.player.isSeekable())
+        self._update_overlay_play_visibility()
 
     def _on_playback_error(self, _error: QMediaPlayer.Error) -> None:
         QtWidgets.QMessageBox.critical(self, "Playback Error", self.player.errorString())
+
+    def _sync_fullscreen_action_checked(self) -> None:
+        blocker = QtCore.QSignalBlocker(self.fullscreen_action)
+        self.fullscreen_action.setChecked(self._is_fullscreen)
+
+    def _toggle_fullscreen(self, checked: bool) -> None:
+        if checked:
+            self.showFullScreen()
+            return
+        self.showNormal()
+
+    def _enter_fullscreen(self) -> None:
+        self._is_fullscreen = True
+        if not self._restore_state:
+            self._restore_state["timeline_visible"] = self.timeline_widget.isVisible()
+            self._restore_state["controls_visible"] = self.controls_widget.isVisible()
+            self._restore_state["dock_visible"] = self.metadata_dock.isVisible()
+            self._restore_state["menubar_visible"] = self.menuBar().isVisible()
+            self._restore_state["toolbar_visible"] = self.view_toolbar.isVisible()
+            self._restore_state["volume_visible"] = self.volume_controls_widget.isVisible()
+            self._restore_state["main_margins"] = self.main_layout.contentsMargins()
+            self._restore_state["main_spacing"] = self.main_layout.spacing()
+            self._restore_state["container_margins"] = self.container.contentsMargins()
+
+        self.timeline_widget.hide()
+        self.controls_widget.hide()
+        self.volume_controls_widget.hide()
+        self.metadata_dock.hide()
+        self.menuBar().hide()
+        self.view_toolbar.hide()
+        self._restore_dock_titlebars["metadata"] = self.metadata_dock.titleBarWidget()
+        self.metadata_dock.setTitleBarWidget(QtWidgets.QWidget())
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        self.container.setContentsMargins(0, 0, 0, 0)
+        self.centralWidget().setContentsMargins(0, 0, 0, 0)
+        self.media_preview_widget.setContentsMargins(0, 0, 0, 0)
+        self.video_widget.setStyleSheet("background:black; border:none; margin:0; padding:0;")
+        self.image_label.setStyleSheet("background:black; border:none; margin:0; padding:0;")
+        if not self.isFullScreen():
+            self.showFullScreen()
+        self._sync_fullscreen_action_checked()
+
+    def _exit_fullscreen(self) -> None:
+        if not self._is_fullscreen and not self.isFullScreen():
+            return
+
+        if self.isFullScreen():
+            self.showNormal()
+        state = self._restore_state
+
+        self.metadata_dock.setTitleBarWidget(self._restore_dock_titlebars.get("metadata"))
+        self._restore_dock_titlebars = {}
+        if state:
+            self.timeline_widget.setVisible(bool(state.get("timeline_visible", True)))
+            self.controls_widget.setVisible(bool(state.get("controls_visible", True)))
+            self.volume_controls_widget.setVisible(bool(state.get("volume_visible", False)))
+            self.metadata_dock.setVisible(bool(state.get("dock_visible", False)))
+            self.menuBar().setVisible(bool(state.get("menubar_visible", True)))
+            self.view_toolbar.setVisible(bool(state.get("toolbar_visible", True)))
+            main_margins = state.get("main_margins")
+            if isinstance(main_margins, QtCore.QMargins):
+                self.main_layout.setContentsMargins(main_margins)
+            self.main_layout.setSpacing(int(state.get("main_spacing", 6)))
+            container_margins = state.get("container_margins")
+            if isinstance(container_margins, QtCore.QMargins):
+                self.container.setContentsMargins(container_margins)
+                self.centralWidget().setContentsMargins(container_margins)
+
+        self._restore_state = {}
+        self._is_fullscreen = False
+
+        self._sync_fullscreen_action_checked()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
         if self.image_label.isVisible():
             self._update_scaled_image()
+
+    def changeEvent(self, event: QtCore.QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() != QtCore.QEvent.WindowStateChange:
+            return
+
+        if self.isFullScreen():
+            if not self._is_fullscreen:
+                self._enter_fullscreen()
+            return
+
+        if self._is_fullscreen:
+            self._exit_fullscreen()
 
     @QtCore.Slot()
     def on_open(self) -> None:
@@ -805,6 +1115,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
 
+        self._set_volume_controls_visibility(result.package_type)
         self._add_recent_path(file_path)
         manifest_text, manifest_json = self._decode_manifest(result.manifest_bytes)
         self._refresh_metadata(result, manifest_text, manifest_json)
@@ -826,6 +1137,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.video_widget.hide()
             self._show_image_from_bytes(result.primary_media_bytes)
             self._set_controls_enabled(False)
+            self._update_overlay_play_visibility()
             return
 
         if result.package_type == "aifm" and result.primary_media_bytes is not None:
@@ -833,6 +1145,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_controls_enabled(True)
             self.video_widget.hide()
             self._show_aifm_artwork_or_placeholder(result, manifest_json)
+            self._update_overlay_play_visibility()
             return
 
         self._clear_image()
@@ -841,10 +1154,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self._load_media_from_bytes(result.primary_media_bytes, result.primary_media_path)
             self._set_controls_enabled(True)
             self.video_widget.show()
+            self._update_overlay_play_visibility()
         else:
             self._clear_media_source()
             self._set_controls_enabled(False)
             self.video_widget.hide()
+            self._update_overlay_play_visibility()
 
 
 def main() -> None:

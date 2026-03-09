@@ -20,7 +20,12 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller flask werkzeug jinja2 click itsdangerous markupsafe
+          pip install -r requirements.txt pyinstaller
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
 
       - name: Clean build folders
         shell: pwsh
@@ -31,37 +36,31 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
-          pyinstaller --clean --noconfirm paion-player.spec
+          pyinstaller --clean --noconfirm packaging/aifx_player_windows.spec
 
-      - name: Inspect dist output
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "packaging\aifx_player_windows.iss"
+
+      - name: Verify dist output
         shell: pwsh
         run: |
           Write-Host "=== DIST CONTENTS ==="
-          if (Test-Path "dist") {
-            Get-ChildItem -Recurse "dist" | Select-Object FullName
-          } else {
+          if (-not (Test-Path "dist")) {
             Write-Host "ERROR: dist folder not found"
             exit 1
           }
 
-      - name: Zip Windows build
-        shell: pwsh
-        run: |
-          if (Test-Path "dist\\AIFX-Player") {
-            Compress-Archive `
-              -Path "dist\\AIFX-Player\\*" `
-              -DestinationPath "AIFX-Player-Windows.zip" `
-              -Force
+          Get-ChildItem -Recurse "dist" | Select-Object FullName
+
+          if (-not (Test-Path "dist\AIFX Player.exe")) {
+            Write-Host "ERROR: Expected dist\AIFX Player.exe not found"
+            exit 1
           }
-          elseif (Test-Path "dist\\AIFX-Player.exe") {
-            Compress-Archive `
-              -Path "dist\\AIFX-Player.exe" `
-              -DestinationPath "AIFX-Player-Windows.zip" `
-              -Force
-          }
-          else {
-            Write-Host "ERROR: Expected AIFX-Player output not found"
-            Get-ChildItem -Recurse "dist" | Select-Object FullName
+
+          if (-not (Test-Path "dist\AIFX-Player-Setup.exe")) {
+            Write-Host "ERROR: Expected dist\AIFX-Player-Setup.exe not found"
             exit 1
           }
 
@@ -69,4 +68,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AIFX-Player-Windows
-          path: AIFX-Player-Windows.zip
+          path: |
+            dist/AIFX Player.exe
+            dist/AIFX-Player-Setup.exe
